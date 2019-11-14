@@ -280,11 +280,12 @@ class Client(object):
     def _connect(self):
         self.close()
 
+        server = self.server
         if isinstance(self.server, (list, tuple)):
             family = self.socket_module.AF_INET
             if re.match(r"\[.+\]", self.server[0]):
                 family = self.socket_module.AF_INET6
-                self.server = (self.server[0][1:-1], self.server[1])
+                server = (self.server[0][1:-1], self.server[1])
             sock = self.socket_module.socket(family,
                                              self.socket_module.SOCK_STREAM)
         else:
@@ -292,7 +293,7 @@ class Client(object):
                                              self.socket_module.SOCK_STREAM)
         try:
             sock.settimeout(self.connect_timeout)
-            sock.connect(self.server)
+            sock.connect(server)
             sock.settimeout(self.timeout)
             if self.no_delay and sock.family in (self.socket_module.AF_INET,
                                                  self.socket_module.AF_INET6):
