@@ -19,8 +19,9 @@ import collections
 import errno
 import functools
 import json
-import os
 import mock
+import os
+import re
 import socket
 import unittest
 
@@ -40,7 +41,8 @@ from pymemcache.test.utils import MockMemcacheClient
 
 
 class MockSocket(object):
-    def __init__(self, recv_bufs, connect_failure=None, close_failure=None):
+    def __init__(self, recv_bufs, connect_failure=None, close_failure=None,
+                 family=socket.AF_INET):
         self.recv_bufs = collections.deque(recv_bufs)
         self.send_bufs = []
         self.closed = False
@@ -49,10 +51,11 @@ class MockSocket(object):
         self.close_failure = close_failure
         self.connections = []
         self.socket_options = []
+        self._family = family
 
     @property
     def family(self):
-        return socket.AF_INET
+        return self._family
 
     def sendall(self, value):
         self.send_bufs.append(value)
@@ -107,7 +110,8 @@ class MockSocketModule(object):
         socket = MockSocket(
             [],
             connect_failure=self.connect_failure,
-            close_failure=self.close_failure)
+            close_failure=self.close_failure,
+            family=family)
         self.sockets.append(socket)
         return socket
 
@@ -1068,29 +1072,32 @@ class TestClient(ClientTestMixin, unittest.TestCase):
 @pytest.mark.unit()
 class TestClientSocketConnect(unittest.TestCase):
     def test_socket_connect(self):
-        server = ("example.com", 11211)
+        for server_url in ("example.com", "[example.com]"):
+            server = (server_url, 11211)
+            if re.match(r"\[.+\]", server_url):
+                server = (server_url[1:-1], 11211)
 
-        client = Client(server, socket_module=MockSocketModule())
-        client._connect()
-        assert client.sock.connections == [server]
+            client = Client(server, socket_module=MockSocketModule())
+            client._connect()
+            assert client.sock.connections == [server]
 
-        timeout = 2
-        connect_timeout = 3
-        client = Client(
-            server, connect_timeout=connect_timeout, timeout=timeout,
-            socket_module=MockSocketModule())
-        client._connect()
-        assert client.sock.timeouts == [connect_timeout, timeout]
+            timeout = 2
+            connect_timeout = 3
+            client = Client(
+                server, connect_timeout=connect_timeout, timeout=timeout,
+                socket_module=MockSocketModule())
+            client._connect()
+            assert client.sock.timeouts == [connect_timeout, timeout]
 
-        client = Client(server, socket_module=MockSocketModule())
-        client._connect()
-        assert client.sock.socket_options == []
+            client = Client(server, socket_module=MockSocketModule())
+            client._connect()
+            assert client.sock.socket_options == []
 
-        client = Client(
-            server, socket_module=MockSocketModule(), no_delay=True)
-        client._connect()
-        assert client.sock.socket_options == [(socket.IPPROTO_TCP,
-                                               socket.TCP_NODELAY, 1)]
+            client = Client(
+                server, socket_module=MockSocketModule(), no_delay=True)
+            client._connect()
+            assert client.sock.socket_options == [(socket.IPPROTO_TCP,
+                                                   socket.TCP_NODELAY, 1)]
 
     def test_socket_connect_unix(self):
         server = '/tmp/pymemcache.{pid}'.format(pid=os.getpid())
