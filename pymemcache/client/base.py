@@ -12,6 +12,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 import errno
+import re
 import socket
 import six
 
@@ -118,7 +119,8 @@ class Client(object):
 
      The ``server`` parameter controls how the client connects to the memcached
      server. You can either use a (host, port) tuple for a TCP connection or a
-     string containing the path to a UNIX domain socket.
+     string containing the path to a UNIX domain socket. Put ``host`` in square
+     brackets to use IPv6.
 
      The ``connect_timeout`` and ``timeout`` parameters can be used to set
      socket timeout values. By default, timeouts are disabled.
@@ -279,7 +281,11 @@ class Client(object):
         self.close()
 
         if isinstance(self.server, (list, tuple)):
-            sock = self.socket_module.socket(self.socket_module.AF_INET,
+            family = self.socket_module.AF_INET
+            if re.match(r"\[.+\]", self.server[0]):
+                family = self.socket_module.AF_INET6
+                self.server = (self.server[0][1:-1], self.server[1])
+            sock = self.socket_module.socket(family,
                                              self.socket_module.SOCK_STREAM)
         else:
             sock = self.socket_module.socket(self.socket_module.AF_UNIX,
@@ -288,7 +294,8 @@ class Client(object):
             sock.settimeout(self.connect_timeout)
             sock.connect(self.server)
             sock.settimeout(self.timeout)
-            if self.no_delay and sock.family == self.socket_module.AF_INET:
+            if self.no_delay and sock.family in (self.socket_module.AF_INET,
+                                                 self.socket_module.AF_INET6):
                 sock.setsockopt(self.socket_module.IPPROTO_TCP,
                                 self.socket_module.TCP_NODELAY, 1)
         except Exception:
