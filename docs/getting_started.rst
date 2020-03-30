@@ -13,6 +13,13 @@ Basic Usage
     client.set('some_key', 'some_value')
     result = client.get('some_key')
 
+You can use IPv6 connections by putting the host in square brackets, for
+example:
+
+.. code-block:: python
+
+    client = Client(('[example.com]', 11211))
+
 Using UNIX domain sockets
 -------------------------
 You can also connect to a local memcached server over a UNIX domain socket by
@@ -36,7 +43,7 @@ on if a server goes down.
 
     client = HashClient([
         ('127.0.0.1', 11211),
-        ('127.0.0.1', 11212)
+        ('[127.0.0.1]', 11212)
     ])
     client.set('some_key', 'some value')
     result = client.get('some_key')
