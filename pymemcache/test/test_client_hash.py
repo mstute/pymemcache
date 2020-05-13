@@ -39,7 +39,8 @@ class TestHashClient(ClientTestMixin, unittest.TestCase):
         return client
 
     def test_setup_client_without_pooling(self):
-        with mock.patch('pymemcache.client.hash.Client') as internal_client:
+        client_class = 'pymemcache.client.hash.HashClient.client_class'
+        with mock.patch(client_class) as internal_client:
             client = HashClient([], timeout=999, key_prefix='foo_bar_baz')
             client.add_server('127.0.0.1', '11211')
 
@@ -142,6 +143,21 @@ class TestHashClient(ClientTestMixin, unittest.TestCase):
         result = client.gets_many([b'key1', b'key3'])
         assert (result ==
                 {b'key1': (b'value1', b'1'), b'key3': (b'value2', b'1')})
+
+    def test_touch_not_found(self):
+        client = self.make_client([b'NOT_FOUND\r\n'])
+        result = client.touch(b'key', noreply=False)
+        assert result is False
+
+    def test_touch_no_expiry_found(self):
+        client = self.make_client([b'TOUCHED\r\n'])
+        result = client.touch(b'key', noreply=False)
+        assert result is True
+
+    def test_touch_with_expiry_found(self):
+        client = self.make_client([b'TOUCHED\r\n'])
+        result = client.touch(b'key', 1, noreply=False)
+        assert result is True
 
     def test_no_servers_left(self):
         from pymemcache.client.hash import HashClient
@@ -252,5 +268,79 @@ class TestHashClient(ClientTestMixin, unittest.TestCase):
         ])
         result = client.set_many(values, noreply=True)
         assert result == []
+
+    def test_server_encoding_pooled(self):
+        """
+        test passed encoding from hash client to pooled clients
+        """
+        encoding = 'utf8'
+        from pymemcache.client.hash import HashClient
+        hash_client = HashClient(
+            [('example.com', 11211)], use_pooling=True,
+            encoding=encoding
+        )
+
+        for client in hash_client.clients.values():
+            assert client.encoding == encoding
+
+    def test_server_encoding_client(self):
+        """
+        test passed encoding from hash client to clients
+        """
+        encoding = 'utf8'
+        from pymemcache.client.hash import HashClient
+        hash_client = HashClient(
+            [('example.com', 11211)], encoding=encoding
+        )
+
+        for client in hash_client.clients.values():
+            assert client.encoding == encoding
+
+    @mock.patch("pymemcache.client.hash.HashClient.client_class")
+    def test_dead_server_comes_back(self, client_patch):
+        client = HashClient([], dead_timeout=0, retry_attempts=0)
+        client.add_server("127.0.0.1", 11211)
+
+        test_client = client_patch.return_value
+        test_client.server = ("127.0.0.1", 11211)
+
+        test_client.get.side_effect = socket.timeout()
+        with pytest.raises(socket.timeout):
+            client.get(b"key", noreply=False)
+        # Client gets removed because of socket timeout
+        assert ("127.0.0.1", 11211) in client._dead_clients
+
+        test_client.get.side_effect = lambda *_: "Some value"
+        # Client should be retried and brought back
+        assert client.get(b"key") == "Some value"
+        assert ("127.0.0.1", 11211) not in client._dead_clients
+
+    @mock.patch("pymemcache.client.hash.HashClient.client_class")
+    def test_failed_is_retried(self, client_patch):
+        client = HashClient([], retry_attempts=1, retry_timeout=0)
+        client.add_server("127.0.0.1", 11211)
+
+        assert client_patch.call_count == 1
+
+        test_client = client_patch.return_value
+        test_client.server = ("127.0.0.1", 11211)
+
+        test_client.get.side_effect = socket.timeout()
+        with pytest.raises(socket.timeout):
+            client.get(b"key", noreply=False)
+
+        test_client.get.side_effect = lambda *_: "Some value"
+        assert client.get(b"key") == "Some value"
+
+        assert client_patch.call_count == 1
+
+    def test_custom_client(self):
+        class MyClient(Client):
+            pass
+
+        client = HashClient([])
+        client.client_class = MyClient
+        client.add_server('host', 11211)
+        assert isinstance(client.clients['host:11211'], MyClient)
 
     # TODO: Test failover logic

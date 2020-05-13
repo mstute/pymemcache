@@ -230,6 +230,24 @@ def test_incr_decr(client_class, host, port, socket_module):
 
 
 @pytest.mark.integration()
+def test_touch(client_class, host, port, socket_module):
+    client = client_class((host, port), socket_module=socket_module)
+    client.flush_all()
+
+    result = client.touch(b'key', noreply=False)
+    assert result is False
+
+    result = client.set(b'key', b'0', 1, noreply=False)
+    assert result is True
+
+    result = client.touch(b'key', noreply=False)
+    assert result is True
+
+    result = client.touch(b'key', 1, noreply=False)
+    assert result is True
+
+
+@pytest.mark.integration()
 def test_misc(client_class, host, port, socket_module):
     client = Client((host, port), socket_module=socket_module)
     client.flush_all()
@@ -344,3 +362,19 @@ def test_errors(client_class, host, port, socket_module):
 
     with pytest.raises(MemcacheClientError):
         _unicode_value_in_set()
+
+
+@pytest.mark.integration()
+def test_tls(client_class, tls_host, tls_port, socket_module, tls_context):
+    client = client_class(
+        (tls_host, tls_port),
+        socket_module=socket_module,
+        tls_context=tls_context
+    )
+    client.flush_all()
+
+    key = b'key'
+    value = b'value'
+    key2 = b'key2'
+    value2 = b'value2'
+    get_set_helper(client, key, value, key2, value2)

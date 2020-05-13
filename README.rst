@@ -65,10 +65,10 @@ so using it with libraries like gevent is out of the question, and its
 dependency on libmemcached poses challenges (e.g., it must be built against
 the same version of libmemcached that it will use at runtime).
 
-Python-memcache
----------------
+python-memcached
+----------------
 
-The python-memcache library implements the entire memcached text protocol, has
+The python-memcached library implements the entire memcached text protocol, has
 a single timeout for all socket calls and has a flexible approach to
 serialization and deserialization. It is also written entirely in Python, so
 it works well with libraries like gevent. However, it is tied to using thread
@@ -124,6 +124,8 @@ Credits
 * `Joe Gordon <https://github.com/jogo>`_
 * `Jon Parise <https://github.com/jparise>`_
 * `Stephen Rosen <https://github.com/sirosen>`_
+* `Feras Alazzeh <https://github.com/FerasAlazzeh>`_
+* `Moisés Guimarães de Medeiros <https://github.com/moisesguimaraes>`_
 
 We're Hiring!
 =============

@@ -3,7 +3,7 @@ import time
 import logging
 import six
 
-from pymemcache.client.base import Client, PooledClient, _check_key
+from pymemcache.client.base import Client, PooledClient, check_key_helper
 from pymemcache.client.rendezvous import RendezvousHash
 from pymemcache.exceptions import MemcacheError
 
@@ -14,6 +14,8 @@ class HashClient(object):
     """
     A client for communicating with a cluster of memcached servers
     """
+    #: :class:`Client` class used to create new clients
+    client_class = Client
 
     def __init__(
         self,
@@ -36,7 +38,8 @@ class HashClient(object):
         ignore_exc=False,
         allow_unicode_keys=False,
         default_noreply=True,
-        encoding='ascii'
+        encoding='ascii',
+        tls_context=None
     ):
         """
         Constructor.
@@ -87,6 +90,8 @@ class HashClient(object):
             'deserializer': deserializer,
             'allow_unicode_keys': allow_unicode_keys,
             'default_noreply': default_noreply,
+            'encoding': encoding,
+            'tls_context': tls_context,
         }
 
         if use_pooling is True:
@@ -98,6 +103,7 @@ class HashClient(object):
         for server, port in servers:
             self.add_server(server, port)
         self.encoding = encoding
+        self.tls_context = tls_context
 
     def add_server(self, server, port):
         key = '%s:%s' % (server, port)
@@ -108,7 +114,7 @@ class HashClient(object):
                 **self.default_kwargs
             )
         else:
-            client = Client((server, port), **self.default_kwargs)
+            client = self.client_class((server, port), **self.default_kwargs)
 
         self.clients[key] = client
         self.hasher.add_node(key)
@@ -120,22 +126,28 @@ class HashClient(object):
         key = '%s:%s' % (server, port)
         self.hasher.remove_node(key)
 
+    def _retry_dead(self):
+        current_time = time.time()
+        ldc = self._last_dead_check_time
+        # We have reached the retry timeout
+        if current_time - ldc > self.dead_timeout:
+            candidates = []
+            for server, dead_time in self._dead_clients.items():
+                if current_time - dead_time > self.dead_timeout:
+                    candidates.append(server)
+            for server in candidates:
+                logger.debug(
+                    'bringing server back into rotation %s',
+                    server
+                )
+                self.add_server(*server)
+                del self._dead_clients[server]
+            self._last_dead_check_time = current_time
+
     def _get_client(self, key):
-        _check_key(key, self.allow_unicode_keys, self.key_prefix)
-        if len(self._dead_clients) > 0:
-            current_time = time.time()
-            ldc = self._last_dead_check_time
-            # we have dead clients and we have reached the
-            # timeout retry
-            if current_time - ldc > self.dead_timeout:
-                for server, dead_time in self._dead_clients.items():
-                    if current_time - dead_time > self.dead_timeout:
-                        logger.debug(
-                            'bringing server back into rotation %s',
-                            server
-                        )
-                        self.add_server(*server)
-                        self._last_dead_check_time = current_time
+        check_key_helper(key, self.allow_unicode_keys, self.key_prefix)
+        if self._dead_clients:
+            self._retry_dead()
 
         server = self.hasher.get_node(key)
         # We've ran out of servers to try
@@ -421,6 +433,9 @@ class HashClient(object):
 
     def replace(self, key, *args, **kwargs):
         return self._run_cmd('replace', key, False, *args, **kwargs)
+
+    def touch(self, key, *args, **kwargs):
+        return self._run_cmd('touch', key, False, *args, **kwargs)
 
     def flush_all(self):
         for _, client in self.clients.items():

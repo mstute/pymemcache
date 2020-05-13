@@ -13,7 +13,7 @@ jobs:
     runs-on: ubuntu-latest
     strategy:
       matrix:
-        python-version: [2.7, 3.5, 3.6, 3.7, pypy2, pypy3]
+        python-version: [2.7, 3.5, 3.6, 3.7, 3.8, pypy2, pypy3]
 
     steps:
     - uses: actions/checkout@v1
@@ -26,7 +26,7 @@ jobs:
         python -m pip install --upgrade pip
         sudo apt-get install libmemcached-dev
     - name: Lint
-      if: matrix.python-version == '2.7' || matrix.python-version == '3.7'
+      if: matrix.python-version == '2.7' || matrix.python-version == '3.8'
       run: |
         pip install flake8
         flake8 pymemcache/
@@ -34,10 +34,17 @@ jobs:
     - name: Tests
       run: |
         pip install -r test-requirements.txt
-        py.test pymemcache/test/ -m unit,integration --port ${{ job.services.memcached.ports[11211] }}
+        py.test pymemcache/test/ \
+            -m unit,integration \
+            --port ${{ job.services.memcached.ports[11211] }} \
+            --tls-port ${{ job.services.tls_memcached.ports[11211] }}
 
     services:
       memcached:
         image: memcached:latest
+        ports:
+        - 11211/tcp
+      tls_memcached:
+        image: scoriacorp/tls_memcached:latest
         ports:
         - 11211/tcp

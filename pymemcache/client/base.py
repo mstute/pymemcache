@@ -83,7 +83,7 @@ STAT_TYPES = {
 # Common helper functions.
 
 
-def _check_key(key, allow_unicode_keys, key_prefix=b''):
+def check_key_helper(key, allow_unicode_keys, key_prefix=b''):
     """Checks key and add key_prefix."""
     if allow_unicode_keys:
         if isinstance(key, six.text_type):
@@ -221,7 +221,8 @@ class Client(object):
                  key_prefix=b'',
                  default_noreply=True,
                  allow_unicode_keys=False,
-                 encoding='ascii'):
+                 encoding='ascii',
+                 tls_context=None):
         """
         Constructor.
 
@@ -271,11 +272,12 @@ class Client(object):
         self.default_noreply = default_noreply
         self.allow_unicode_keys = allow_unicode_keys
         self.encoding = encoding
+        self.tls_context = tls_context
 
     def check_key(self, key):
         """Checks key and add key_prefix."""
-        return _check_key(key, allow_unicode_keys=self.allow_unicode_keys,
-                          key_prefix=self.key_prefix)
+        return check_key_helper(key, allow_unicode_keys=self.allow_unicode_keys,
+                                key_prefix=self.key_prefix)
 
     def _connect(self):
         self.close()
@@ -288,6 +290,11 @@ class Client(object):
                 server = (self.server[0][1:-1], self.server[1])
             sock = self.socket_module.socket(family,
                                              self.socket_module.SOCK_STREAM)
+
+            if self.tls_context:
+                sock = self.tls_context.wrap_socket(
+                    sock, server_hostname=self.server[0]
+                )
         else:
             sock = self.socket_module.socket(self.socket_module.AF_UNIX,
                                              self.socket_module.SOCK_STREAM)
@@ -299,6 +306,7 @@ class Client(object):
                                                  self.socket_module.AF_INET6):
                 sock.setsockopt(self.socket_module.IPPROTO_TCP,
                                 self.socket_module.TCP_NODELAY, 1)
+
         except Exception:
             sock.close()
             raise
@@ -1009,6 +1017,9 @@ class PooledClient(object):
     in the pool. Your serde object must therefore be thread-safe.
     """
 
+    #: :class:`Client` class used to create new clients
+    client_class = Client
+
     def __init__(self,
                  server,
                  serde=None,
@@ -1024,7 +1035,8 @@ class PooledClient(object):
                  lock_generator=None,
                  default_noreply=True,
                  allow_unicode_keys=False,
-                 encoding='ascii'):
+                 encoding='ascii',
+                 tls_context=None):
         self.server = server
         self.serde = serde or LegacyWrappingSerde(serializer, deserializer)
         self.connect_timeout = connect_timeout
@@ -1045,26 +1057,28 @@ class PooledClient(object):
             max_size=max_pool_size,
             lock_generator=lock_generator)
         self.encoding = encoding
+        self.tls_context = tls_context
 
     def check_key(self, key):
         """Checks key and add key_prefix."""
-        return _check_key(key, allow_unicode_keys=self.allow_unicode_keys,
-                          key_prefix=self.key_prefix)
+        return check_key_helper(key, allow_unicode_keys=self.allow_unicode_keys,
+                                key_prefix=self.key_prefix)
 
     def _create_client(self):
-        client = Client(self.server,
-                        serde=self.serde,
-                        connect_timeout=self.connect_timeout,
-                        timeout=self.timeout,
-                        no_delay=self.no_delay,
-                        # We need to know when it fails *always* so that we
-                        # can remove/destroy it from the pool...
-                        ignore_exc=False,
-                        socket_module=self.socket_module,
-                        key_prefix=self.key_prefix,
-                        default_noreply=self.default_noreply,
-                        allow_unicode_keys=self.allow_unicode_keys)
-        return client
+        return self.client_class(
+            self.server,
+            serde=self.serde,
+            connect_timeout=self.connect_timeout,
+            timeout=self.timeout,
+            no_delay=self.no_delay,
+            # We need to know when it fails *always* so that we
+            # can remove/destroy it from the pool...
+            ignore_exc=False,
+            socket_module=self.socket_module,
+            key_prefix=self.key_prefix,
+            default_noreply=self.default_noreply,
+            allow_unicode_keys=self.allow_unicode_keys,
+            tls_context=self.tls_context)
 
     def close(self):
         self.client_pool.clear()
